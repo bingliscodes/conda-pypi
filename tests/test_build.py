@@ -379,7 +379,7 @@ def activation_build_project(
     tmp_path: Path,
     pypi_demo_package_wheel_path: Path,
 ) -> Path:
-    project = tmp_path / "project"
+    project = tmp_path / "project with spaces"
     project.mkdir()
     (project / "pyproject.toml").write_text(
         '[build-system]\nrequires = []\nbuild-backend = "backend"\nbackend-path = ["."]\n',
@@ -392,17 +392,23 @@ def activation_build_project(
         "def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n"
         f"    source = Path({str(pypi_demo_package_wheel_path)!r})\n"
         "    shutil.copyfile(source, Path(wheel_directory) / source.name)\n"
-        "    return source.name\n",
+        "    return source.name\n"
+        "get_requires_for_build_editable = get_requires_for_build_wheel\n"
+        "build_editable = build_wheel\n",
         encoding="utf-8",
     )
     return project
 
 
+@pytest.mark.parametrize("change_directory", [False, True], ids=["normal-hook", "cd-hook"])
+@pytest.mark.parametrize("distribution", ["wheel", "editable"])
 def test_local_build_activates_prefix_and_cleans_runner_scripts(
     activation_build_project: Path,
     tmp_env: TmpEnvFixture,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    change_directory: bool,
+    distribution: str,
 ) -> None:
     project = activation_build_project
     scripts: list[Path] = []
@@ -420,10 +426,15 @@ def test_local_build_activates_prefix_and_cleans_runner_scripts(
         hooks = prefix / "etc" / "conda" / "activate.d"
         hooks.mkdir(parents=True, exist_ok=True)
         windows = sys.platform == "win32"
-        (hooks / ("build.bat" if windows else "build.sh")).write_text(
+        hook_text = (
             "set BUILD_PREFIX_HOOK=activated\n"
             if windows
-            else "export BUILD_PREFIX_HOOK=activated\n",
+            else "export BUILD_PREFIX_HOOK=activated\n"
+        )
+        if change_directory:
+            hook_text += "cd /d %SystemRoot%\n" if windows else "cd /\n"
+        (hooks / ("build.bat" if windows else "build.sh")).write_text(
+            hook_text,
             encoding="utf-8",
         )
         executable = (
@@ -446,14 +457,48 @@ def test_local_build_activates_prefix_and_cleans_runner_scripts(
             encoding="utf-8",
         )
         assert Path(
-            conda_build.build_pypa(project, tmp_path / "output", prefix, "wheel")
+            conda_build.build_pypa(project, tmp_path / "output", prefix, distribution)
         ).is_file()
-        assert scripts and all(not script.exists() for script in scripts)
+        assert bool(scripts) == windows
+        assert all(not script.exists() for script in scripts)
 
         backend.write_text(
             backend.read_text(encoding="utf-8") + "raise RuntimeError('backend failure')\n",
             encoding="utf-8",
         )
         with pytest.raises(BuildBackendException):
-            conda_build.build_pypa(project, tmp_path / "output", prefix, "wheel")
+            conda_build.build_pypa(project, tmp_path / "output", prefix, distribution)
         assert all(not script.exists() for script in scripts)
+
+
+@pytest.mark.parametrize("failure", ["missing-prefix", "hook-error"])
+def test_local_build_does_not_start_backend_when_activation_fails(
+    activation_build_project: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    project = activation_build_project
+    marker = tmp_path / "backend-started"
+    backend = project / "backend.py"
+    backend.write_text(
+        backend.read_text(encoding="utf-8") + f"Path({str(marker)!r}).touch()\n",
+        encoding="utf-8",
+    )
+    # Keep the backend runnable so only failed activation prevents execution.
+    monkeypatch.setattr(conda_build.paths, "get_python_executable", lambda prefix: sys.executable)
+    monkeypatch.setattr(dependencies, "check_dependencies", lambda *args, **kwargs: [])
+    prefix = tmp_path / "build-prefix"
+    if failure == "hook-error":
+        (prefix / "conda-meta").mkdir(parents=True)
+        (prefix / "conda-meta" / "history").touch()
+        hooks = prefix / "etc" / "conda" / "activate.d"
+        hooks.mkdir(parents=True)
+        windows = sys.platform == "win32"
+        (hooks / ("fail.bat" if windows else "fail.sh")).write_text(
+            "exit /b 7\n" if windows else "return 7\n", encoding="utf-8"
+        )
+
+    with pytest.raises(BuildBackendException):
+        conda_build.build_pypa(project, tmp_path / "output", prefix, "wheel")
+    assert not marker.exists()
