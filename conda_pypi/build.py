@@ -16,15 +16,18 @@ import sys
 import tarfile
 import tempfile
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from importlib.metadata import PathDistribution
 from pathlib import Path
 
 from build import ProjectBuilder  # noqa: TID253
+from conda.base.context import context
 from conda.common.compat import on_win
 from conda.common.path.windows import win_path_to_unix
+from conda.utils import wrap_subprocess_call
 from conda_package_streaming.create import conda_builder
 from installer.utils import parse_wheel_filename  # noqa: TID253
+from pyproject_hooks import default_subprocess_runner
 
 from conda_pypi import dependencies, installer, paths
 from conda_pypi.conda_build_utils import PathType, sha256_checksum
@@ -118,7 +121,20 @@ def build_pypa(
     """
     python_executable = str(paths.get_python_executable(prefix))
 
-    builder = ProjectBuilder(path, python_executable=python_executable)
+    def runner(
+        command: Sequence[str],
+        cwd: str | None = None,
+        extra_environ: Mapping[str, str] | None = None,
+    ) -> None:
+        script, wrapped = wrap_subprocess_call(
+            context.root_prefix, str(prefix), context.dev, False, command
+        )
+        try:
+            default_subprocess_runner(wrapped, cwd=cwd, extra_environ=extra_environ)
+        finally:
+            Path(script).unlink(missing_ok=True)
+
+    builder = ProjectBuilder(path, python_executable=python_executable, runner=runner)
 
     def install_missing(requirements):
         """
