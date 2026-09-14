@@ -1,3 +1,0 @@
-### Bug fixes
-
-* Activate the selected conda environment when running local build backends so compiler paths, environment variables, and activation hooks are available during builds.

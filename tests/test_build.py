@@ -6,13 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from build import BuildBackendException
 from conda.common.path import get_python_short_path
-from conda.core.prefix_data import PrefixData
 from conda.testing.fixtures import TmpEnvFixture
 from conda_package_streaming import package_streaming
 
-from conda_pypi import build as conda_build
 from conda_pypi import dependencies
 from conda_pypi.build import build_conda, build_pypa, pypa_to_conda
 from conda_pypi.package_extractors.whl import extract_whl_as_conda_pkg
@@ -44,7 +41,9 @@ def local_build_project(
             "def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n"
             f"    source = Path({str(pypi_demo_package_wheel_path)!r})\n"
             "    shutil.copyfile(source, Path(wheel_directory) / source.name)\n"
-            "    return source.name\n",
+            "    return source.name\n"
+            "get_requires_for_build_editable = get_requires_for_build_wheel\n"
+            "build_editable = build_wheel\n",
             encoding="utf-8",
         )
         return project
@@ -54,12 +53,16 @@ def local_build_project(
 
 @pytest.mark.parametrize("build_function", [build_pypa, pypa_to_conda])
 @pytest.mark.parametrize("phase", ["build-system", "backend", "build-package"])
+@pytest.mark.parametrize(
+    "distribution_options", [{"distribution": "wheel"}, {}], ids=["wheel", "editable-default"]
+)
 def test_local_build_rejects_missing_dependencies_without_installing(
     local_build_project: Callable[[list[str], list[str]], Path],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     build_function: Callable[..., str | Path],
     phase: str,
+    distribution_options: dict[str, str],
 ) -> None:
     missing = "missing-build-dependency>=1"
     project = local_build_project(
@@ -79,8 +82,8 @@ def test_local_build_rejects_missing_dependencies_without_installing(
             project,
             output_path=tmp_path / "output",
             prefix=Path(sys.prefix),
-            distribution="wheel",
             install_build_dependencies=False,
+            **distribution_options,
         )
     assert exc.value.dependencies == [missing]
 
@@ -89,11 +92,15 @@ def test_local_build_rejects_missing_dependencies_without_installing(
 @pytest.mark.parametrize(
     "options", [{}, {"install_build_dependencies": False}], ids=["default", "preinstalled-only"]
 )
+@pytest.mark.parametrize(
+    "distribution_options", [{"distribution": "wheel"}, {}], ids=["wheel", "editable-default"]
+)
 def test_local_build_uses_preinstalled_dependencies(
     local_build_project: Callable[[list[str], list[str]], Path],
     tmp_path: Path,
     build_function: Callable[..., str | Path],
     options: dict[str, bool],
+    distribution_options: dict[str, str],
 ) -> None:
     project = local_build_project(["packaging"], ["build"])
     output = tmp_path / "output"
@@ -102,75 +109,10 @@ def test_local_build_uses_preinstalled_dependencies(
         project,
         output_path=output,
         prefix=Path(sys.prefix),
-        distribution="wheel",
         **options,
+        **distribution_options,
     )
     assert Path(package).is_file()
-
-
-def test_local_build_activates_prefix_and_cleans_runner_scripts(
-    local_build_project: Callable[[list[str], list[str]], Path],
-    tmp_env: TmpEnvFixture,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = local_build_project([], [])
-    scripts: list[Path] = []
-    wrap = conda_build.wrap_subprocess_call
-
-    def record_wrapper(*args: object, **kwargs: object) -> tuple[str, list[str]]:
-        script, command = wrap(*args, **kwargs)
-        scripts.append(Path(script))
-        return script, command
-
-    monkeypatch.setattr(conda_build, "wrap_subprocess_call", record_wrapper)
-    with tmp_env("python=3.12", "python-build") as prefix:
-        prefix = Path(prefix)
-        PrefixData(prefix).set_environment_env_vars({"BUILD_PREFIX_STATE": "declared"})
-        hooks = prefix / "etc" / "conda" / "activate.d"
-        hooks.mkdir(parents=True, exist_ok=True)
-        windows = sys.platform == "win32"
-        (hooks / ("build.bat" if windows else "build.sh")).write_text(
-            "set BUILD_PREFIX_HOOK=activated\n"
-            if windows
-            else "export BUILD_PREFIX_HOOK=activated\n",
-            encoding="utf-8",
-        )
-        executable = (
-            prefix
-            / ("Scripts" if windows else "bin")
-            / ("build-prefix-probe.bat" if windows else "build-prefix-probe")
-        )
-        executable.write_text("", encoding="utf-8")
-        executable.chmod(0o755)
-        backend = project / "backend.py"
-        backend.write_text(
-            backend.read_text(encoding="utf-8")
-            + "import os\n"
-            + f"assert Path.cwd() == Path({str(project)!r})\n"
-            + f"assert Path(os.environ['CONDA_PREFIX']).resolve() == Path({str(prefix)!r}).resolve()\n"
-            + "assert os.environ['BUILD_PREFIX_STATE'] == 'declared'\n"
-            + "assert os.environ['BUILD_PREFIX_HOOK'] == 'activated'\n"
-            + "assert os.environ['_PYPROJECT_HOOKS_BUILD_BACKEND'] == 'backend'\n"
-            + f"assert Path(shutil.which('build-prefix-probe')).resolve() == Path({str(executable)!r}).resolve()\n",
-            encoding="utf-8",
-        )
-        assert Path(
-            build_pypa(
-                project, tmp_path / "output", prefix, "wheel", install_build_dependencies=False
-            )
-        ).is_file()
-        assert scripts and all(not script.exists() for script in scripts)
-
-        backend.write_text(
-            backend.read_text(encoding="utf-8") + "raise RuntimeError('backend failure')\n",
-            encoding="utf-8",
-        )
-        with pytest.raises(BuildBackendException):
-            build_pypa(
-                project, tmp_path / "output", prefix, "wheel", install_build_dependencies=False
-            )
-        assert all(not script.exists() for script in scripts)
 
 
 def _build_demo_conda_and_paths(
