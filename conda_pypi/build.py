@@ -151,7 +151,10 @@ def build_pypa(
             shell = shutil.which("bash") or shutil.which("sh")
             if shell is None:
                 raise FileNotFoundError("Building a local project requires bash or sh")
-            activator = PosixActivator(["activate", str(prefix)])
+            activation_args = ["activate", str(prefix)]
+            if context.dev:
+                activation_args.append("--dev")
+            activator = PosixActivator(activation_args)
             # Generate activation before starting the shell so generation errors
             # cannot be hidden by eval. Hooks may change the backend's directory.
             activation = activator.execute()

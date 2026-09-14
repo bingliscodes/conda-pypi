@@ -402,6 +402,7 @@ def activation_build_project(
 
 @pytest.mark.parametrize("change_directory", [False, True], ids=["normal-hook", "cd-hook"])
 @pytest.mark.parametrize("distribution", ["wheel", "editable"])
+@pytest.mark.parametrize("dev_mode", [False, True], ids=["installed-conda", "conda-dev"])
 def test_local_build_activates_prefix_and_cleans_runner_scripts(
     activation_build_project: Path,
     tmp_env: TmpEnvFixture,
@@ -409,6 +410,7 @@ def test_local_build_activates_prefix_and_cleans_runner_scripts(
     monkeypatch: pytest.MonkeyPatch,
     change_directory: bool,
     distribution: str,
+    dev_mode: bool,
 ) -> None:
     project = activation_build_project
     scripts: list[Path] = []
@@ -456,19 +458,22 @@ def test_local_build_activates_prefix_and_cleans_runner_scripts(
             + f"assert Path(shutil.which('build-prefix-probe')).resolve() == Path({str(executable)!r}).resolve()\n",
             encoding="utf-8",
         )
-        assert Path(
-            conda_build.build_pypa(project, tmp_path / "output", prefix, distribution)
-        ).is_file()
-        assert bool(scripts) == windows
-        assert all(not script.exists() for script in scripts)
+        with conda_build.context._override("dev", dev_mode):
+            assert Path(
+                conda_build.build_pypa(project, tmp_path / "output", prefix, distribution)
+            ).is_file()
+            assert conda_build.context.dev == dev_mode
+            assert bool(scripts) == windows
+            assert all(not script.exists() for script in scripts)
 
-        backend.write_text(
-            backend.read_text(encoding="utf-8") + "raise RuntimeError('backend failure')\n",
-            encoding="utf-8",
-        )
-        with pytest.raises(BuildBackendException):
-            conda_build.build_pypa(project, tmp_path / "output", prefix, distribution)
-        assert all(not script.exists() for script in scripts)
+            backend.write_text(
+                backend.read_text(encoding="utf-8") + "raise RuntimeError('backend failure')\n",
+                encoding="utf-8",
+            )
+            with pytest.raises(BuildBackendException):
+                conda_build.build_pypa(project, tmp_path / "output", prefix, distribution)
+            assert conda_build.context.dev == dev_mode
+            assert all(not script.exists() for script in scripts)
 
 
 @pytest.mark.parametrize("failure", ["missing-prefix", "hook-error"])
