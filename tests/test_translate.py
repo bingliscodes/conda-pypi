@@ -9,6 +9,7 @@ from conda_pypi import __version__
 from conda_pypi.translate import (
     CondaMetadata,
     FileDistribution,
+    build_number_from_build_tag,
     requires_to_conda,
     validate_name_mapping_format,
 )
@@ -298,3 +299,17 @@ def test_link_json_entry_points_are_parseable_by_conda():
         # Raises ValueError for "app [cli]" before this fix.
         command, module, func = parse_entry_point_def(entry_point)
         assert (command, module, func) == ("demo-script", "pkg.cli", "app")
+
+
+@pytest.mark.parametrize(
+    ("build_tag", "expected"),
+    [
+        (None, 0),
+        ("1", 1),
+        ("1dev", 1),
+        ("7ks", 7),
+    ],
+)
+def test_build_number_from_build_tag(build_tag: str | None, expected: int):
+    """Use the leading digits of a wheel build tag; default to 0."""
+    assert build_number_from_build_tag(build_tag) == expected
