@@ -8,17 +8,8 @@ environment in conda versions 26.5 and newer.
 Update your conda installation to get `conda-pypi`:
 
 ```bash
-conda install --name base "conda>=26.5"
+conda self update
 ```
-
-You can also install the plugin directly into your `base` environment:
-
-```bash
-conda install --name base conda-pypi
-```
-
-Once installed, the `conda pypi` subcommand becomes available across all your
-conda environments.
 
 ## Set up the `conda-pypi` channel
 
@@ -52,17 +43,9 @@ package.
 Note that the `conda-pypi` channel is currently name-mapped to `conda-forge`, not `defaults`. You may need to add `conda-forge` to your channels list for some solves to succeed.
 :::
 
-:::{note}
-During the beta, the `conda-pypi` channel might not appear in the Anaconda.org
-web UI and some commands such as `conda search` can fail because they request
-classic `repodata.json` metadata. This does not necessarily mean the channel is
-down. To test the channel, use `conda install` or `conda create --dry-run` with
-the Rattler solver enabled.
-:::
-
-:::{admonition} Beta
+:::{admonition} Limitations
 :class: warning
-The conda-pypi channel is in public beta. It hosts metadata only, for pure Python wheels from PyPI. Compiled wheels are not supported at the moment.
+The `conda-pypi` channel hosts metadata only, for pure Python wheels from PyPI. Compiled wheels are not supported at the moment.
 The security posture is the same as installing from public PyPI. For more
 details, see {ref}`conda-pypi-channel`.
 :::
@@ -227,8 +210,8 @@ conda pypi install -e ./package1/ -e ./package2/
 
 `conda-pypi` includes support for a special file called `EXTERNALLY-MANAGED`
 that can help protect conda environments from accidental pip usage that could
-break their integrity. During the beta, `conda-pypi` does not automatically add
-this file to conda environments.
+break their integrity. `conda-pypi` does not automatically add this file to
+conda environments, since doing so would break existing pip-based workflows.
 
 More details about this protection mechanism can be found at
 {ref}`externally-managed`.
