@@ -3,8 +3,6 @@
 import json
 import logging
 
-import pytest
-
 from conda_pypi.pypi_metadata import pypi_to_repodata, python_depend_from_requires_python
 
 
@@ -180,7 +178,7 @@ def test_python_depend_from_requires_python(caplog):
     )
 
 
-def test_pypi_to_repodata_excludes_upper_bound_prereleases():
+def test_pypi_to_repodata_converts_specifiers_to_conda():
     pypi_data = {
         "urls": [
             {
@@ -202,19 +200,8 @@ def test_pypi_to_repodata_excludes_upper_bound_prereleases():
     assert "packagea<3.12.0a0,>=3.9" in entry["depends"]
 
 
-@pytest.mark.parametrize(
-    ("requires_python", "expected"),
-    [
-        (">=3.9,<3.12", "python <3.12a0,>=3.9"),
-        ("<3.12.0,>=3.9", "python <3.12.0a0,>=3.9"),
-        (">=3.9,<3.12.0", "python <3.12.0a0,>=3.9"),
-        (">=3.9,<=3.12", "python <=3.12,>=3.9"),
-        (">=3.9,<3.12.0rc1", "python <3.12.0rc1,>=3.9"),
-    ],
-)
-def test_python_depend_excludes_upper_bound_prereleases(requires_python, expected):
-    condition = python_depend_from_requires_python(requires_python)
-    assert condition == expected
+def test_python_depend_from_requires_python_converts_specifiers_to_conda():
+    assert python_depend_from_requires_python(">=2.0,<3.12.0") == "python <3.12.0a0,>=2.0"
 
 
 def test_pypi_to_repodata_appends_python_when_requires_python_invalid():

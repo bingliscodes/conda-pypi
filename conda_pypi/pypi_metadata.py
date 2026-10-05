@@ -9,7 +9,6 @@ from typing import Any
 
 from packaging.requirements import Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.version import Version
 
 from conda_pypi.markers import (
     dependency_extras_suffix,
@@ -17,28 +16,9 @@ from conda_pypi.markers import (
     extract_marker_condition_and_extras,
 )
 from conda_pypi.name_mapping import pypi_to_conda_name
+from conda_pypi.specifiers import specifier_bounds_to_conda
 
 log = logging.getLogger(__name__)
-
-
-def specifier_bounds_to_conda(specifier: SpecifierSet) -> str:
-    """Return a conda MatchSpec version string built from PEP 440 specifiers.
-
-    Exclusive upper bounds (``<V``) that are not themselves pre-releases get ``a0``
-    appended. PEP 440's ``<V`` excludes pre-releases of ``V``, but conda's ``<`` only
-    compares versions, and pre-releases sort below ``V``, so ``<3.12`` would match
-    ``3.12.0rc1``. ``<3.12a0`` excludes them.
-
-    Bounds are sorted the same way as ``str(SpecifierSet)`` so the output is deterministic.
-    """
-    bounds = []
-    for spec in sorted(specifier, key=str):
-        new_bound = f"{spec.operator}{spec.version}"
-        if spec.operator == "<" and not Version(spec.version).is_prerelease:
-            new_bound += "a0"
-        bounds.append(new_bound)
-
-    return ",".join(bounds)
 
 
 def python_depend_from_requires_python(
