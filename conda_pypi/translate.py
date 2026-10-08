@@ -15,11 +15,12 @@ from typing import Any
 from conda.exceptions import ArgumentError
 from conda.models.match_spec import MatchSpec
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 
 from conda_pypi import __version__
 from conda_pypi.name_mapping import conda_to_pypi_name, pypi_to_conda_name
 from conda_pypi.pypi_metadata import python_depend_from_requires_python
-from conda_pypi.specifiers import specifier_bounds_to_conda
+from conda_pypi.specifiers import specifier_bounds_to_conda, specifier_bounds_to_pep440
 
 log = logging.getLogger(__name__)
 
@@ -306,7 +307,7 @@ def conda_to_requires(match_spec: MatchSpec) -> Requirement | None:
         version_str = version_str.removesuffix(".*")
         if version_str and version_str[0] not in "<>=!~":
             version_str = f"=={version_str}"
-        return Requirement(f"{name}{version_str}")
+        return Requirement(f"{name}{specifier_bounds_to_pep440(SpecifierSet(version_str))}")
 
     return Requirement(name)
 

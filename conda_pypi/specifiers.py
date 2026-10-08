@@ -1,5 +1,5 @@
 """
-Responsible for PEP 440 to Conda Version conversions
+Responsible for PEP 440 <=> Conda Version conversions
 """
 
 from packaging.specifiers import SpecifierSet
@@ -22,5 +22,21 @@ def specifier_bounds_to_conda(specifier: SpecifierSet) -> str:
         if spec.operator == "<" and not Version(spec.version).is_prerelease:
             new_bound += "a0"
         bounds.append(new_bound)
+
+    return ",".join(bounds)
+
+
+def specifier_bounds_to_pep440(specifier: SpecifierSet) -> str:
+    """Return a PEP 440 version string from a converted conda MatchSpec version string.
+
+    PEP 440 exclusive upper bounds that have ``a0`` appended will enable matching prereleases.
+    Removing the ``a0`` added from specifier_bounds_to_conda ensures that the PEP 440 compares specifications as intended.
+    """
+    bounds = []
+    for spec in sorted(specifier, key=str):
+        version = spec.version
+        if spec.operator == "<" and version.endswith("a0"):
+            version = version.removesuffix("a0")
+        bounds.append(f"{spec.operator}{version}")
 
     return ",".join(bounds)
